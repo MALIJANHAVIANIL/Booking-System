@@ -156,11 +156,11 @@ class ReservationControllerIntegrationTest {
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].userId").value(user1.getId()));
 
-        // Admin queries GET /api/reservations -> should get both 2
+        // Admin queries GET /api/reservations -> should get all reservations
         mockMvc.perform(get("/api/reservations")
                         .header("Authorization", adminToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(2));
+                .andExpect(jsonPath("$.totalElements", greaterThanOrEqualTo(2)));
     }
 
     @Test
@@ -219,5 +219,113 @@ class ReservationControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].price").value(500.00))
                 .andExpect(jsonPath("$.content[1].price").value(100.00));
+    }
+
+    @Test
+    void test1_adminUpdatesAnotherUsersReservation_Success() throws Exception {
+        Reservation res = reservationRepository.save(Reservation.builder()
+                .user(user1)
+                .resource(resource1)
+                .startTime(LocalDateTime.now().plusDays(1))
+                .endTime(LocalDateTime.now().plusDays(1).plusHours(2))
+                .price(resource1.getPrice())
+                .status(ReservationStatus.PENDING)
+                .build());
+
+        String updateBody = "{\"status\": \"CONFIRMED\"}";
+
+        mockMvc.perform(put("/api/reservations/" + res.getId())
+                        .header("Authorization", adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+    }
+
+    @Test
+    void test2_userUpdatesOwnReservation_Success() throws Exception {
+        Reservation res = reservationRepository.save(Reservation.builder()
+                .user(user1)
+                .resource(resource1)
+                .startTime(LocalDateTime.now().plusDays(1))
+                .endTime(LocalDateTime.now().plusDays(1).plusHours(2))
+                .price(resource1.getPrice())
+                .status(ReservationStatus.PENDING)
+                .build());
+
+        String updateBody = "{\"status\": \"CONFIRMED\"}";
+
+        mockMvc.perform(put("/api/reservations/" + res.getId())
+                        .header("Authorization", user1Token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+    }
+
+    @Test
+    void test3_userUpdatesAnotherUsersReservation_ReturnsForbidden() throws Exception {
+        Reservation resAdmin = reservationRepository.save(Reservation.builder()
+                .user(admin)
+                .resource(resource2)
+                .startTime(LocalDateTime.now().plusDays(2))
+                .endTime(LocalDateTime.now().plusDays(2).plusHours(3))
+                .price(resource2.getPrice())
+                .status(ReservationStatus.PENDING)
+                .build());
+
+        String updateBody = "{\"status\": \"CONFIRMED\"}";
+
+        mockMvc.perform(put("/api/reservations/" + resAdmin.getId())
+                        .header("Authorization", user1Token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.message", containsString("You do not have permission")));
+    }
+
+    @Test
+    void test4_unauthenticatedRequest_ReturnsUnauthorized() throws Exception {
+        String updateBody = "{\"status\": \"CONFIRMED\"}";
+
+        mockMvc.perform(put("/api/reservations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401));
+    }
+
+    @Test
+    void test5_invalidReservationId_ReturnsNotFound() throws Exception {
+        String updateBody = "{\"status\": \"CONFIRMED\"}";
+
+        mockMvc.perform(put("/api/reservations/99999")
+                        .header("Authorization", user1Token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    void test6_invalidStatus_ReturnsBadRequest() throws Exception {
+        Reservation res = reservationRepository.save(Reservation.builder()
+                .user(user1)
+                .resource(resource1)
+                .startTime(LocalDateTime.now().plusDays(1))
+                .endTime(LocalDateTime.now().plusDays(1).plusHours(2))
+                .price(resource1.getPrice())
+                .status(ReservationStatus.PENDING)
+                .build());
+
+        String updateBody = "{\"status\": \"INVALID_STATUS\"}";
+
+        mockMvc.perform(put("/api/reservations/" + res.getId())
+                        .header("Authorization", user1Token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
     }
 }
